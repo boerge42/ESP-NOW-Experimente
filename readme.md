@@ -1,6 +1,6 @@
 # Sensordaten via ESP-Now
 
-Datenübertragung allein via WLAN/MQTT ist "energetisch" nicht wirklich optimal! Wozu das ganze Halli-Galli, um sich in einem WLAN anzumelden, eine IP-Adresse zu erhalten etc.? Das verbraucht nur wertvolle Zeit! Expressif hat dafür ["ESP-NOW"](https://www.espressif.com/en/solutions/low-power-solutions/esp-now) erfunden!
+Datenübertragung allein via WLAN/MQTT ist "energetisch" nicht wirklich optimal! Wozu das ganze Halli-Galli, um sich in einem WLAN anzumelden, eine IP-Adresse zu erhalten etc.? Das verbraucht nur wertvolle Zeit! Expressif hat dafür [ESP-NOW](https://www.espressif.com/en/solutions/low-power-solutions/esp-now) erfunden!
 
 In den Unterverzeichnissen sind ein paar Experimente dazu zu finden:
 
