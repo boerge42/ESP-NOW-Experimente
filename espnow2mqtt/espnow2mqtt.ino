@@ -33,6 +33,8 @@
 #include <esp_now.h>
 #include <esp_wifi.h>
 #include <WiFi.h>
+
+#define ARDUINOJSON_USE_DOUBLE 0
 #include <ArduinoJson.h>
 
 #include "my_esp_now.h"
@@ -115,6 +117,11 @@ void mqtt_connect(void) {
 }
 
 // ******************************************************************************************
+double round_dec(double value, int dec) {
+   return (int)(value * pow(10, dec) + 0.5) / pow(10, dec);
+}
+
+// ******************************************************************************************
 void messageReceived(const esp_now_recv_info *info, const uint8_t* incomingData, int len){
     
     // empfangene Daten auf sensor_values mappen
@@ -145,19 +152,19 @@ void messageReceived(const esp_now_recv_info *info, const uint8_t* incomingData,
     // json aufbereiten und via mqtt senden
     JsonDocument doc;
     JsonObject BME280 = doc["BME280"].to<JsonObject>();
-    BME280["temperature"] = sensor_values.bme_temperature;
-    BME280["humidity"] = sensor_values.bme_humidity;
-    BME280["pressure_abs"] = sensor_values.bme_pressure_abs;
-    BME280["pressure_rel"] = sensor_values.bme_pressure_rel;
+    BME280["temperature"] = round_dec(sensor_values.bme_temperature, 1);
+    BME280["humidity"] = round_dec(sensor_values.bme_humidity, 1);
+    BME280["pressure_abs"] = round_dec(sensor_values.bme_pressure_abs, 1);
+    BME280["pressure_rel"] = round_dec(sensor_values.bme_pressure_rel, 1);
     JsonObject SHT21 = doc["SHT21"].to<JsonObject>();
-    SHT21["temperature"] = sensor_values.sht_temperature;
-    SHT21["humidity"] = sensor_values.sht_humidity;
-    doc["TMP36"]["temperature"] = sensor_values.tmp36_temperature;
-    doc["BH1750"]["luminosity"] = sensor_values.bh1750_luminosity;
+    SHT21["temperature"] = round_dec(sensor_values.sht_temperature, 1);
+    SHT21["humidity"] = round_dec(sensor_values.sht_humidity, 1);
+    doc["TMP36"]["temperature"] = round_dec(sensor_values.tmp36_temperature, 1);
+    doc["BH1750"]["luminosity"] = round_dec(sensor_values.bh1750_luminosity, 1);
     JsonObject ESP = doc["ESP"].to<JsonObject>();
     ESP["awake_time"] = sensor_values.awake_time;
-    ESP["vcc"] = sensor_values.vcc;
-    ESP["vbat"] = sensor_values.vcc;
+    ESP["vcc"] = round_dec(sensor_values.vcc, 2);
+    ESP["vbat"] = round_dec(sensor_values.vbat, 2);
     ESP["t1"] = sensor_values.t1;
     ESP["t2"] = sensor_values.t2;
     ESP["t3"] = sensor_values.t3;
