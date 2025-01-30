@@ -2,7 +2,7 @@
 //
 // ESP-NOW Sender (Wetterstation)
 // ==============================
-//        Uwe Berger, 2024
+//        Uwe Berger, 2014
 //
 // Diverse Sensoren auslesen und Messwerte via ESP-Now versenden.
 //
@@ -122,8 +122,8 @@ float tmp36_readTemperatureC_via_ads1115 (void)
   // TMP36 an ADC0 angeschlossen
   int16_t adc = ads.readADC_SingleEnded(0);
   float voltage = adc * 1024.0 / 32768.0 / 1000.0;             // x*1024/2^15/1000
-  return (voltage - 0.5) * 100;               // RTFM TMP36
-}
+  return ((voltage - 0.5) * 100) + 9.5;                        // RTFM TMP36; ...die 9.5 sind "magic Offset",
+}                                                              // hat wahrscheinlich was mit der "Elektrik" zu tun?
 
 // **************************************************************
 float read_vcc_via_ads1115 (void)
@@ -136,34 +136,27 @@ float read_vcc_via_ads1115 (void)
 } 
  
 // **************************************************************
-// ...wir brauchen einen Spannungsteiler, da max. Vcc + 0.3V anliegen
-// duerfen! Vcc ist 3.3V (MCP1700-3302). Voll geladene Akkus kommen 
-// locker ueber 3.6V...
 float read_vbat_via_ads1115 (void)
 {
-  // 2x Gain (+/- 2.048V --> 15Bit-Aufloesung)
-  ads.setGain(GAIN_TWO);
-  // Vcc liegt an ADC2 an
+  // 1x Gain (+/- 4.096V --> Aufloesung 2mV)
+  ads.setGain(GAIN_ONE);
+  // Vbat liegt an ADC2 an
   int16_t adc = ads.readADC_SingleEnded(2);
-  return adc*3.2*0.0000625;                       // 2048/2^15/1000 * 3.2 (3.2 --> Spannungsteiler)
+  return adc*0.000125;                       // 4.096/2^15/1000
 }
  
 // **************************************************************
 void sensors_read(void)
 {
-  // Achtung: der BH1750 scheint ein wenig Zeit zwischen 
-  // Init --> Read --> poweroff zu brauchen, um einen sinnvollen
-  // Wert lesen zu koennen; die folgende Anordnung der Kommandos
-  // scheint aber zu reichen...
   
   // Sensoren init
-  bme.begin(0x76);        // BME280
   myLux.powerOn();        // BH1750
-  myLux.setContHighRes(); // ...
+  myLux.setOnceLowRes();  // once shot, low resolution
+  bme.begin(0x76);        // BME280
   ads.begin();            // ADS1115
   sht.begin();            // SHT21
   sht.setResolution(3);   // ...Temp./Hum. in 11Bit Aufloesung
-  
+
   sensor_values.t1 = millis() - awake_time;
 
   // Sensoren auslesen
@@ -176,14 +169,15 @@ void sensors_read(void)
   sensor_values.t2 = millis() - awake_time;
   
   // ...BH1750
-  sensor_values.bh1750_luminosity = myLux.getLux();
+  while (!myLux.isReady());                          // hier sollten die 16ms fuer LowRes und OnceShot 
+  sensor_values.bh1750_luminosity = myLux.getLux();  // vorbei sein, ansonsten noch weiter nach unten...
 
   sensor_values.t3 = millis() - awake_time;
   
   // ...ADS1115
-  sensor_values.tmp36_temperature = tmp36_readTemperatureC_via_ads1115();
   sensor_values.vcc               = read_vcc_via_ads1115();
   sensor_values.vbat              = read_vbat_via_ads1115();
+  sensor_values.tmp36_temperature = tmp36_readTemperatureC_via_ads1115();
   
   sensor_values.t4 = millis() - awake_time;
 
