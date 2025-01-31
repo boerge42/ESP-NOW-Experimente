@@ -115,6 +115,14 @@ void bme280_sleep(void)
 }
  
 // **************************************************************
+float tmp36_readTemperatureC_via_esp (void)
+{
+  int16_t adc = analogRead(A0);
+  float voltage = adc * 3.14/1024.0;                 // Spannungsteiler lt. Schaltplan 220k/100K (Faktor 3.2); Faktor etwas "korrigiert" ;-)
+  return (voltage - 0.5) * 100.0;                    // RTFM TMP36;
+}
+ 
+// **************************************************************
 float tmp36_readTemperatureC_via_ads1115 (void)
 {
   // 4x Gain (+/- 1.024V 15Bit-Aufloesung)
@@ -151,40 +159,42 @@ void sensors_read(void)
   
   // Sensoren init
   myLux.powerOn();        // BH1750
-  myLux.setOnceLowRes();  // once shot, low resolution
+  myLux.setOnceHighRes(); // once shot, high resolution
   bme.begin(0x76);        // BME280
   ads.begin();            // ADS1115
   sht.begin();            // SHT21
-  sht.setResolution(3);   // ...Temp./Hum. in 11Bit Aufloesung
+  sht.setResolution(3);   // Temp./Hum. in 11Bit Aufloesung; kuerzeste Messdauer!
 
   sensor_values.t1 = millis() - awake_time;
 
   // Sensoren auslesen
+
+  // ...SHT21
+  sht.read();
+  sensor_values.sht_temperature   = sht.getTemperature();
+  sensor_values.sht_humidity      = sht.getHumidity();
+  
+  sensor_values.t2 = millis() - awake_time;
+  
   // ...BME280
   sensor_values.bme_temperature   = bme.readTemperature();
   sensor_values.bme_humidity      = bme.readHumidity();
   sensor_values.bme_pressure_abs  = bme.readPressure()/100.0F;
-  sensor_values.bme_pressure_rel  = sensor_values.bme_pressure_abs+(altitude/8.0);
-  
-  sensor_values.t2 = millis() - awake_time;
-  
-  // ...BH1750
-  while (!myLux.isReady());                          // hier sollten die 16ms fuer LowRes und OnceShot 
-  sensor_values.bh1750_luminosity = myLux.getLux();  // vorbei sein, ansonsten noch weiter nach unten...
+  sensor_values.bme_pressure_rel  = sensor_values.bme_pressure_abs+(altitude/8.0);  
 
   sensor_values.t3 = millis() - awake_time;
   
   // ...ADS1115
   sensor_values.vcc               = read_vcc_via_ads1115();
   sensor_values.vbat              = read_vbat_via_ads1115();
-  sensor_values.tmp36_temperature = tmp36_readTemperatureC_via_ads1115();
+  //~ sensor_values.tmp36_temperature = tmp36_readTemperatureC_via_ads1115();
+  sensor_values.tmp36_temperature = tmp36_readTemperatureC_via_esp();
   
   sensor_values.t4 = millis() - awake_time;
 
-  // ...SHT21
-  sht.read();
-  sensor_values.sht_temperature   = sht.getTemperature();
-  sensor_values.sht_humidity      = sht.getHumidity();
+  // ...BH1750
+  while (!myLux.isReady());                          // hier sollten dann hoffentlich die 120ms
+  sensor_values.bh1750_luminosity = myLux.getLux();  // fuer HighRes und OnceShot vorbei sein!
 
   sensor_values.t5 = millis() - awake_time;
 
