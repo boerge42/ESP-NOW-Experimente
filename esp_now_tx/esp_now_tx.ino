@@ -2,9 +2,26 @@
 //
 // ESP-NOW Sender (Wetterstation)
 // ==============================
-//        Uwe Berger, 2014
+//    Uwe Berger, 2024, 2025
 //
-// Diverse Sensoren auslesen und Messwerte via ESP-Now versenden.
+// Diverse Sensoren auslesen, ermittelte Messwerte ueber ESP-Now an einen, via 
+// MAC-Adresse, definierten Empfaenger weiterleiten und danach, fuer eine 
+// festgelegte Zeit, in Tiefschlaf gehen...
+//
+// Hardware:
+// =========
+//
+// ein ESP8266, an dem folgendes angeschlossen ist:
+// * ueber I2C:
+//   * BME280 (Temperatur, Luftfeuchtigkeit, Luftdruck)
+//   * SHT21 (Temperatur, Luftfeuchtigkeit)
+//   * BH1750 (Helligkeit)
+// * ein CD4066BE als analoger Multiplexer, welcher 4 Kanaele hat und
+//   folgende Werte an den einzigen ADC-Eingang des ESP8266 "durchschaltet":
+//     * Kanal 1 --> TMP36
+//     * Kanal 2 --> Vcc
+//     * Kanal 3 --> Vbat
+//     * Kanal 4 --> ...wir haben da noch was frei...
 //
 //
 // Hinweis: der Pfad zu my_esp_now.h muss in der include-Anweisung
@@ -20,7 +37,6 @@
 
 #include <Wire.h>
 #include <Adafruit_BME280.h>
-#include <Adafruit_ADS1X15.h>
 #include <BH1750FVI.h>
 #include "SHT2x.h"
 
@@ -58,7 +74,11 @@ SHT2x sht;
 
 BH1750FVI myLux(0x23);
 
-Adafruit_ADS1115 ads;
+// CD4066-Channel <-- GPIO
+#define CHANNEL_1   0  // GPIO0; D2 --> TMP36
+#define CHANNEL_2   2  // GPIO2; D4 --> Vbat
+#define CHANNEL_3   12 // GPIO2; D6 --> Vcc
+#define CHANNEL_4   13 // GPIO2; D7 --> ...ist noch frei!
 
 
 // **************************************************************
@@ -115,44 +135,37 @@ void bme280_sleep(void)
 }
  
 // **************************************************************
-float tmp36_readTemperatureC_via_esp (void)
+int16_t read_multi_adc(int channel)
 {
+  digitalWrite(channel, HIGH);
   int16_t adc = analogRead(A0);
-  float voltage = adc * 3.14/1024.0;                 // Spannungsteiler lt. Schaltplan 220k/100K (Faktor 3.2); Faktor etwas "korrigiert" ;-)
-  return (voltage - 0.5) * 100.0;                    // RTFM TMP36;
+  digitalWrite(channel, LOW);
+  return adc;
+}
+ 
+ 
+// **************************************************************
+float read_tmp36_in_grad_celsius(void)
+{
+  float voltage = read_multi_adc(CHANNEL_1) * 3.035/1024.0; // Spannungsteiler lt. Schaltplan 220k/100K passt nicht!; nachgemessen: messgeraet zu adc-wert --> Faktor
+  return (voltage - 0.5) * 100.0;                           // RTFM TMP36;
 }
  
 // **************************************************************
-float tmp36_readTemperatureC_via_ads1115 (void)
+float read_vbat(void)
 {
-  // 4x Gain (+/- 1.024V 15Bit-Aufloesung)
-  ads.setGain(GAIN_FOUR);
-  // TMP36 an ADC0 angeschlossen
-  int16_t adc = ads.readADC_SingleEnded(0);
-  float voltage = adc * 1024.0 / 32768.0 / 1000.0;             // x*1024/2^15/1000
-  return ((voltage - 0.5) * 100) + 9.5;                        // RTFM TMP36; ...die 9.5 sind "magic Offset",
-}                                                              // hat wahrscheinlich was mit der "Elektrik" zu tun?
+  float voltage = read_multi_adc(CHANNEL_2) * 3.608/1024.0; // Spannungsteiler auf Board plus 47K in Reihe; nachgemessen: messgeraet zu adc-wert --> Faktor
+  return voltage;
+}
 
 // **************************************************************
-float read_vcc_via_ads1115 (void)
+float read_vcc(void)
 {
-  // 1x Gain (+/- 4.096V --> Aufloesung 2mV)
-  ads.setGain(GAIN_ONE);
-  // Vcc liegt an ADC1 an
-  int16_t adc = ads.readADC_SingleEnded(1);
-  return adc*0.000125;                       // 4.096/2^15/1000
-} 
- 
-// **************************************************************
-float read_vbat_via_ads1115 (void)
-{
-  // 1x Gain (+/- 4.096V --> Aufloesung 2mV)
-  ads.setGain(GAIN_ONE);
-  // Vbat liegt an ADC2 an
-  int16_t adc = ads.readADC_SingleEnded(2);
-  return adc*0.000125;                       // 4.096/2^15/1000
+  float voltage = read_multi_adc(CHANNEL_3) * 3.608/1024.0; // Spannungsteiler auf Board plus 47K in Reihe; nachgemessen: messgeraet zu adc-wert --> Faktor
+  return voltage;
 }
- 
+
+
 // **************************************************************
 void sensors_read(void)
 {
@@ -161,7 +174,6 @@ void sensors_read(void)
   myLux.powerOn();        // BH1750
   myLux.setOnceHighRes(); // once shot, high resolution
   bme.begin(0x76);        // BME280
-  ads.begin();            // ADS1115
   sht.begin();            // SHT21
   sht.setResolution(3);   // Temp./Hum. in 11Bit Aufloesung; kuerzeste Messdauer!
 
@@ -184,11 +196,10 @@ void sensors_read(void)
 
   sensor_values.t3 = millis() - awake_time;
   
-  // ...ADS1115
-  sensor_values.vcc               = read_vcc_via_ads1115();
-  sensor_values.vbat              = read_vbat_via_ads1115();
-  //~ sensor_values.tmp36_temperature = tmp36_readTemperatureC_via_ads1115();
-  sensor_values.tmp36_temperature = tmp36_readTemperatureC_via_esp();
+  // ADC-Werte
+  sensor_values.vcc               = read_vcc();
+  sensor_values.vbat              = read_vbat();
+  sensor_values.tmp36_temperature = read_tmp36_in_grad_celsius();
   
   sensor_values.t4 = millis() - awake_time;
 
@@ -197,7 +208,8 @@ void sensors_read(void)
   sensor_values.bh1750_luminosity = myLux.getLux();  // fuer HighRes und OnceShot vorbei sein!
 
   sensor_values.t5 = millis() - awake_time;
-
+  //~ sensor_values.t5 = read_multi_adc(CHANNEL_3);
+  
   // ...vorhergehende Wachzeit :-)
   sensor_values.awake_time        = old_awake_time;
 
@@ -213,6 +225,12 @@ void setup()
 
   // Nullpunkt fuer Laufzeitmessung setzen
   awake_time = millis();
+  
+  // Kanaele Analog-Multiplexer vor ADC
+  pinMode(CHANNEL_1, OUTPUT); digitalWrite(CHANNEL_1, LOW);
+  pinMode(CHANNEL_2, OUTPUT); digitalWrite(CHANNEL_2, LOW);
+  pinMode(CHANNEL_3, OUTPUT); digitalWrite(CHANNEL_3, LOW);
+  pinMode(CHANNEL_4, OUTPUT); digitalWrite(CHANNEL_4, LOW); // ...noch nicht verwendet!
   
   // Name des Sender-Moduls setzen
   strncpy(sensor_values.tx_name, ESP_NAME, sizeof(sensor_values.tx_name));
